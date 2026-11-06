@@ -1,0 +1,61 @@
+name: Crear VM Oracle
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"   # cada 10 minutos (GitHub puede retrasarlo un poco)
+  workflow_dispatch:          # botón "Run workflow" para probar a mano
+
+permissions:
+  actions: write              # para desactivarse solo al terminar
+  contents: read
+
+concurrency:
+  group: crear-vm
+  cancel-in-progress: false
+
+jobs:
+  crear:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar OCI CLI
+        run: pip install --quiet oci-cli
+
+      - name: Configurar credenciales de Oracle
+        env:
+          OCI_USER: ${{ secrets.OCI_USER }}
+          OCI_TENANCY: ${{ secrets.OCI_TENANCY }}
+          OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+          OCI_REGION: ${{ secrets.OCI_REGION }}
+          OCI_KEY: ${{ secrets.OCI_KEY }}
+        run: |
+          mkdir -p ~/.oci
+          printf '%s\n' "$OCI_KEY" > ~/.oci/key.pem
+          chmod 600 ~/.oci/key.pem
+          cat > ~/.oci/config <<EOF
+          [DEFAULT]
+          user=$OCI_USER
+          fingerprint=$OCI_FINGERPRINT
+          tenancy=$OCI_TENANCY
+          region=$OCI_REGION
+          key_file=~/.oci/key.pem
+          EOF
+          sed -i 's/^ *//' ~/.oci/config
+          chmod 600 ~/.oci/config
+
+      - name: Intentar crear la VM
+        id: vm
+        env:
+          OCI_TENANCY: ${{ secrets.OCI_TENANCY }}
+          MAX_INTENTOS: "8"
+          ESPERA: "60"
+          OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: "True"
+        run: bash crear-vm.sh
+
+      - name: Desactivar este workflow (VM creada)
+        if: steps.vm.outputs.resultado == 'creada'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow disable crear-vm.yml --repo "${{ github.repository }}"
