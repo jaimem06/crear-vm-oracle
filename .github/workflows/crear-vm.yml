@@ -2,11 +2,11 @@ name: Crear VM Oracle
 
 on:
   schedule:
-    - cron: "*/10 * * * *"   # cada 10 minutos (GitHub puede retrasarlo un poco)
-  workflow_dispatch:          # botón "Run workflow" para probar a mano
+    - cron: "*/15 * * * *"   # respaldo por si la cadena se corta
+  workflow_dispatch:
 
 permissions:
-  actions: write              # para desactivarse solo al terminar
+  actions: write
   contents: read
 
 concurrency:
@@ -16,7 +16,7 @@ concurrency:
 jobs:
   crear:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 340          # límite de GitHub: 360
     steps:
       - uses: actions/checkout@v4
 
@@ -49,10 +49,17 @@ jobs:
         id: vm
         env:
           OCI_TENANCY: ${{ secrets.OCI_TENANCY }}
-          MAX_INTENTOS: "8"
+          MAX_INTENTOS: "100"      # ~100 × 2,7 min ≈ 4,5 h por ronda
           ESPERA: "60"
           OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: "True"
+          SUPPRESS_LABEL_WARNING: "True"   # quita el warning de OCI_API_KEY
         run: bash crear-vm.sh
+
+      - name: Relanzar (sin capacidad todavía)
+        if: steps.vm.outputs.resultado == 'sin_capacidad'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run crear-vm.yml --repo "${{ github.repository }}" --ref "${{ github.ref_name }}"
 
       - name: Desactivar este workflow (VM creada)
         if: steps.vm.outputs.resultado == 'creada'
